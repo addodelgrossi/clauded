@@ -145,13 +145,33 @@ make build      # produces dist/clauded
 
 | Variable | Source of usage | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | **Your Pro/Max subscription** | Same account as your interactive Claude Code. Runs share the **same rate-limit pool** (the 5-hour rolling window and weekly limits). It is a *separate token*, but tied to the *same subscription* — so this usage counts against the **same quota you use here**. No per-token invoice; `total_cost_usd` in the response is the *equivalent* value, drawn from your plan, not a charge. |
-| `ANTHROPIC_API_KEY` | **Your API account (pay-per-token)** | Billed separately from the subscription, per the [API pricing](https://www.anthropic.com/pricing). Does **not** touch your subscription limits. Required when `bare:true`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | **Your Pro/Max subscription** | Same account as your interactive Claude Code. No per-token invoice; `total_cost_usd` in the response is the *equivalent* value, drawn from your plan. **But which pool it draws from changed on June 15, 2026 — see below.** |
+| `ANTHROPIC_API_KEY` | **Your API account (pay-per-token)** | Billed separately from the subscription, per the [API pricing](https://www.anthropic.com/pricing). Does **not** touch your subscription limits or the Agent SDK credit. Required when `bare:true`. Nothing about this option changed on June 15. |
 
-If both are set, the `claude` CLI uses the OAuth (subscription) token. To bill
-runs separately from your subscription quota, unset `CLAUDE_CODE_OAUTH_TOKEN` and
-set `ANTHROPIC_API_KEY` instead. You can confirm which one is active from the
-`apiKeySource` field in the streamed `system`/`init` event (`none` = subscription).
+If both are set, the `claude` CLI uses the OAuth (subscription) token. You can
+confirm which one is active from the `apiKeySource` field in the streamed
+`system`/`init` event (`none` = subscription).
+
+> **⚠️ Billing change — June 15, 2026.** `clauded` runs `claude -p` (headless),
+> which Anthropic moved to a **separate Agent SDK credit pool**, distinct from
+> your interactive subscription limits:
+>
+> - **Before:** `claude -p` drew from the same subscription rate-limit pool (5-hour
+>   rolling window + weekly limits) as interactive Claude Code.
+> - **From June 15, 2026:** the Agent SDK, **`claude -p`**, GitHub Actions, and
+>   third-party apps on your subscription draw from a **separate monthly credit** —
+>   **$20** (Pro), **$100** (Max 5x), **$200** (Max 20x) — billed at standard API
+>   rates. Interactive Claude Code, the web/desktop/mobile apps, and Cowork keep
+>   using the normal subscription limits, untouched.
+> - This credit is **much smaller** than what interactive usage allows (in
+>   API-equivalent value). When it runs out, **runs stop** — there is no rollover
+>   and no automatic fallback **unless you enable overflow / usage credits**
+>   (pay-as-you-go at API rates).
+>
+> So as of June 15, every `clauded` run on an OAuth token consumes the Agent SDK
+> credit, not your interactive quota. For heavy automation, enable overflow or use
+> `ANTHROPIC_API_KEY` directly. See the
+> [Claude Help Center](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan).
 
 ---
 
