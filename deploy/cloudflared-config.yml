@@ -1,0 +1,20 @@
+# Exemplo de configuração do Cloudflare Tunnel para expor o clauded.
+#
+# Pré-requisitos (ver README §"Acesso externo via Cloudflare Tunnel"):
+#   cloudflared tunnel login
+#   cloudflared tunnel create clauded
+#   cloudflared tunnel route dns clauded clauded.seudominio.com
+#
+# Depois copie este arquivo para ~/.cloudflared/config.yml, ajuste o TUNNEL_ID
+# e o caminho das credenciais, e rode:
+#   cloudflared tunnel run clauded
+
+tunnel: <TUNNEL_ID>
+credentials-file: /Users/me/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Encaminha o hostname público para o clauded local (bind 127.0.0.1).
+  - hostname: clauded.seudominio.com
+    service: http://127.0.0.1:8787
+  # Regra catch-all obrigatória.
+  - service: http_status:404

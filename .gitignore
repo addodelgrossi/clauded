@@ -30,3 +30,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Artefatos de build
+/dist/
+
+# Config e segredos locais (nunca commitar)
+/clauded.yaml
+clauded.env
+*.local.yaml

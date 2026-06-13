@@ -1,3 +1,6 @@
+// Package runner traduz uma RunRequest no argv do CLI claude e executa o
+// subprocesso, abstraindo a execução por uma interface Executor (com fake nos
+// testes).
 package runner
 
 import (

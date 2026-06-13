@@ -1,0 +1,34 @@
+# systemd unit para o clauded (Linux).
+#
+# Instalação (como serviço de usuário, recomendado):
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/clauded.service ~/.config/systemd/user/
+#   cp deploy/clauded.env ~/.config/clauded.env   # crie com seus segredos
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now clauded
+#   loginctl enable-linger $USER   # mantém rodando após logout
+#
+# Para serviço de sistema, ajuste os caminhos e remova "--user".
+
+[Unit]
+Description=clauded - API HTTP sobre o Claude Code headless
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Arquivo com os segredos (CLAUDED_API_TOKEN, CLAUDE_CODE_OAUTH_TOKEN).
+# Permissões 600. NÃO commite este arquivo.
+EnvironmentFile=%h/.config/clauded.env
+ExecStart=%h/.local/bin/clauded --config %h/.config/clauded.yaml
+Restart=on-failure
+RestartSec=5
+# Hardening básico.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+# clauded precisa escrever no store de sessões e ler/editar os workdirs:
+ReadWritePaths=%h/.clauded %h/projects
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,185 @@
+openapi: 3.1.0
+info:
+  title: clauded API
+  description: |
+    API HTTP sobre o Claude Code headless (`claude -p`), autenticada pela
+    assinatura via `CLAUDE_CODE_OAUTH_TOKEN`. Executa prompts agênticos numa
+    máquina local e expõe sessões persistentes (resume/continue/fork).
+  version: 1.0.0
+  license:
+    name: MIT
+servers:
+  - url: http://127.0.0.1:8787
+    description: Local (atrás do túnel Cloudflare em produção)
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe (público, sem auth)
+      security: []
+      responses:
+        "200":
+          description: Serviço vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+  /readyz:
+    get:
+      summary: Readiness probe (verifica binário claude e token)
+      responses:
+        "200": { description: Pronto }
+        "503": { description: Não pronto, com lista de problemas }
+  /version:
+    get:
+      summary: Versão e metadados de build
+      responses:
+        "200":
+          description: Info de versão
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  commit: { type: string }
+                  date: { type: string }
+                  go_version: { type: string }
+                  os: { type: string }
+                  arch: { type: string }
+  /v1/runs:
+    post:
+      summary: Executa um prompt no Claude Code headless
+      description: |
+        Quando `stream=false` (default) devolve um único JSON com o resultado.
+        Quando `stream=true` devolve `text/event-stream` (SSE), repassando cada
+        objeto do `stream-json` como evento `message` e finalizando com `done`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRequest"
+      responses:
+        "200":
+          description: Resultado da execução (JSON) ou stream SSE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResult"
+            text/event-stream:
+              schema:
+                type: string
+                description: Eventos SSE (event:message / event:done / event:error)
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "500": { $ref: "#/components/responses/Error" }
+        "504": { $ref: "#/components/responses/Error" }
+  /v1/sessions:
+    get:
+      summary: Lista sessões conhecidas
+      responses:
+        "200":
+          description: Lista de sessões
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Session" }
+  /v1/sessions/{id}:
+    get:
+      summary: Metadados de uma sessão
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Sessão
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: Erro padronizado
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    RunRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: { type: string, description: "Prompt do modo headless. Pode iniciar com /<skill> para invocar um skill." }
+        workdir: { type: string, description: "Diretório de trabalho (deve estar na allowlist). Obrigatório, exceto em resume de sessão conhecida." }
+        model: { type: string, description: "sonnet|opus|haiku|fable ou ID completo", default: sonnet }
+        session_id: { type: string, format: uuid, description: "Fixa um ID de sessão (UUID v4)" }
+        resume: { type: string, format: uuid, description: "Retoma sessão específica" }
+        continue: { type: boolean, description: "Retoma a sessão mais recente do workdir", default: false }
+        fork: { type: boolean, description: "Ao retomar, cria novo ID", default: false }
+        output_format: { type: string, enum: [text, json, stream-json], default: json }
+        stream: { type: boolean, description: "Streaming SSE (força stream-json)", default: false }
+        permission_mode:
+          type: string
+          enum: [default, acceptEdits, plan, auto, dontAsk, bypassPermissions]
+          description: "dontAsk e bypassPermissions exigem CLAUDED_ALLOW_DANGEROUS=true"
+          default: default
+        tools: { type: string, description: 'Restringe tools, ex.: "Bash,Edit,Read". "" desabilita todas.' }
+        max_turns: { type: integer, description: "Limita turnos agênticos (pode não existir em todas as versões do CLI)" }
+        max_budget_usd: { type: number, description: "Teto de gasto antes de parar" }
+        append_system_prompt: { type: string }
+        system_prompt: { type: string }
+        mcp_config: { description: "JSON de servers MCP (objeto ou string)" }
+        strict_mcp_config: { type: boolean, default: false }
+        agents: { type: object, description: "Definição dinâmica de subagents" }
+        json_schema: { type: object, description: "Força saída validada por JSON Schema" }
+        bare: { type: boolean, description: "Pula auto-discovery. INCOMPATÍVEL com auth OAuth: exige ANTHROPIC_API_KEY.", default: false }
+        effort: { type: string, enum: [low, medium, high, xhigh] }
+        fallback_model: { type: string }
+        setting_sources: { type: string, description: 'ex.: "user,project,local"' }
+        plugin_dirs: { type: array, items: { type: string }, description: "Diretórios de plugin (validados contra a allowlist)" }
+        plugin_urls: { type: array, items: { type: string } }
+    RunResult:
+      type: object
+      properties:
+        session_id: { type: string }
+        result: { type: string }
+        is_error: { type: boolean }
+        subtype: { type: string, description: "ex.: success, error_max_turns, error_max_budget_usd" }
+        num_turns: { type: integer }
+        duration_ms: { type: integer }
+        total_cost_usd: { type: number }
+        usage: { type: object }
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        workdir: { type: string }
+        model: { type: string }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used: { type: string, format: date-time }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}

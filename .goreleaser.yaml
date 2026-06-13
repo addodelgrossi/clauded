@@ -1,0 +1,62 @@
+version: 2
+
+project_name: clauded
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: clauded
+    main: ./cmd/clauded
+    binary: clauded
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/addodelgrossi/clauded/internal/version.Version={{.Version}}
+      - -X github.com/addodelgrossi/clauded/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/addodelgrossi/clauded/internal/version.Date={{.Date}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - clauded.example.yaml
+      - api/openapi.yaml
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto

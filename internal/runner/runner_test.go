@@ -9,10 +9,9 @@ import (
 
 // fakeExecutor simula o stdout do claude sem invocar o binário real.
 type fakeExecutor struct {
-	stdout   []byte
-	err      error
-	gotSpec  CommandSpec
-	streamFn func() ([]byte, error)
+	stdout  []byte
+	err     error
+	gotSpec CommandSpec
 }
 
 func (f *fakeExecutor) Run(_ context.Context, spec CommandSpec) ([]byte, error) {

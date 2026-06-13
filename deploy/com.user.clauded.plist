@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent para o clauded (macOS).
+
+  Instalação:
+    cp deploy/com.user.clauded.plist ~/Library/LaunchAgents/
+    # edite os caminhos e segredos abaixo (use o caminho ABSOLUTO do seu HOME)
+    launchctl load -w ~/Library/LaunchAgents/com.user.clauded.plist
+    launchctl start com.user.clauded
+
+  Logs em /tmp/clauded.out.log e /tmp/clauded.err.log.
+
+  Dica de segurança: em vez de colocar os tokens neste arquivo (legível),
+  prefira um wrapper script que faça `source ~/.config/clauded.env` e então
+  exec o binário, apontando ProgramArguments para esse script.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.clauded</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/me/.local/bin/clauded</string>
+        <string>--config</string>
+        <string>/Users/me/.config/clauded.yaml</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>CLAUDED_API_TOKEN</key>
+        <string>SUBSTITUA_PELO_SEU_TOKEN</string>
+        <key>CLAUDE_CODE_OAUTH_TOKEN</key>
+        <string>SUBSTITUA_PELO_TOKEN_OAUTH</string>
+        <key>PATH</key>
+        <string>/Users/me/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/clauded.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/clauded.err.log</string>
+</dict>
+</plist>

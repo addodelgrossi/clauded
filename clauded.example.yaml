@@ -1,0 +1,45 @@
+# clauded.example.yaml — configuração de exemplo.
+#
+# Precedência: flag de linha de comando > variável de ambiente (CLAUDED_*) >
+# este arquivo > default. Aponte para ele com --config clauded.yaml ou
+# CLAUDED_CONFIG=clauded.yaml.
+#
+# SEGREDOS NÃO FICAM AQUI. CLAUDED_API_TOKEN, CLAUDE_CODE_OAUTH_TOKEN e
+# ANTHROPIC_API_KEY são lidos SOMENTE do ambiente e nunca logados.
+
+# Endereço de bind. Mantenha em 127.0.0.1 — o acesso externo vem pelo túnel.
+addr: "127.0.0.1:8787"
+
+# Raízes permitidas para o campo workdir das requisições. Qualquer caminho
+# fora destas raízes (após resolver symlinks e "..") é rejeitado.
+allowed_roots:
+  - "/Users/me/projects"
+
+# Execuções simultâneas do claude.
+max_concurrency: 2
+
+# Modelo usado quando a requisição não especifica um.
+default_model: "sonnet"
+
+# Caminho (ou nome no PATH) do binário claude.
+claude_bin: "claude"
+
+# Timeout por execução. Aceita 30s, 10m, 1h.
+run_timeout: "10m"
+
+# Habilita os permission modes perigosos (bypassPermissions, dontAsk).
+# Mantenha false a menos que você confie totalmente nos clientes.
+allow_dangerous: false
+
+# Logging: json (produção) ou text (desenvolvimento).
+log_format: "json"
+log_level: "info"
+
+# Arquivo do store de sessões (mapeia session_id -> workdir).
+session_store: "/Users/me/.clauded/sessions.json"
+
+# Requisições por cliente (token/IP) por minuto. 0 = ilimitado.
+rate_limit_per_minute: 60
+
+# Expõe /metrics (Prometheus) quando true.
+metrics_enabled: false

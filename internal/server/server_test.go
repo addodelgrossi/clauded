@@ -26,7 +26,7 @@ func (f fakeExecutor) Stream(_ context.Context, _ runner.CommandSpec) (io.ReadCl
 	return io.NopCloser(strings.NewReader(f.stdout)), func() error { return nil }, nil
 }
 
-func newTestServer(t *testing.T, root string) (*Server, http.Handler) {
+func newTestServer(t *testing.T, root string) http.Handler {
 	t.Helper()
 	cfg := config.Config{
 		Addr:               "127.0.0.1:0",
@@ -48,11 +48,11 @@ func newTestServer(t *testing.T, root string) (*Server, http.Handler) {
 	r := runner.New(cfg.ClaudeBin, cfg.OAuthToken, "",
 		runner.WithExecutor(fake), runner.WithDefaults(runner.Defaults{Model: cfg.DefaultModel}))
 	srv := New(cfg, WithRunner(r), WithSessionStore(store))
-	return srv, srv.Handler()
+	return srv.Handler()
 }
 
 func TestAuth(t *testing.T) {
-	_, h := newTestServer(t, t.TempDir())
+	h := newTestServer(t, t.TempDir())
 
 	// Sem token -> 401.
 	req := httptest.NewRequest(http.MethodGet, "/version", nil)
@@ -91,7 +91,7 @@ func TestAuth(t *testing.T) {
 
 func TestRuns_WorkdirAllowlist(t *testing.T) {
 	root := t.TempDir()
-	_, h := newTestServer(t, root)
+	h := newTestServer(t, root)
 
 	// workdir fora da allowlist -> 403.
 	body := `{"prompt":"oi","workdir":"/etc"}`
@@ -116,7 +116,7 @@ func TestRuns_WorkdirAllowlist(t *testing.T) {
 
 func TestRuns_DangerousModeBlocked(t *testing.T) {
 	root := t.TempDir()
-	_, h := newTestServer(t, root)
+	h := newTestServer(t, root)
 	rec := doRun(h, `{"prompt":"oi","workdir":"`+root+`","permission_mode":"bypassPermissions"}`)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("bypassPermissions: status %d, quer 403", rec.Code)
@@ -125,7 +125,7 @@ func TestRuns_DangerousModeBlocked(t *testing.T) {
 
 func TestRuns_BareRequiresAPIKey(t *testing.T) {
 	root := t.TempDir()
-	_, h := newTestServer(t, root)
+	h := newTestServer(t, root)
 	rec := doRun(h, `{"prompt":"oi","workdir":"`+root+`","bare":true}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("bare sem api key: status %d, quer 400", rec.Code)
@@ -134,7 +134,7 @@ func TestRuns_BareRequiresAPIKey(t *testing.T) {
 
 func TestRuns_InvalidJSON(t *testing.T) {
 	root := t.TempDir()
-	_, h := newTestServer(t, root)
+	h := newTestServer(t, root)
 	rec := doRun(h, `{bad json`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("json inválido: status %d, quer 400", rec.Code)
