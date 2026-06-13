@@ -144,14 +144,33 @@ O `clauded` autentica o processo `claude` por baixo de duas formas, e
 
 | Variável | De onde sai o uso | Observações |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` (do `claude setup-token`) | **Da sua assinatura Pro/Max** | Mesma conta do seu Claude Code interativo. As runs compartilham o **mesmo pool de rate limit** (a janela móvel de 5h e os limites semanais). É um *token separado*, mas ligado à *mesma assinatura* — então esse uso conta na **mesma cota que você gasta aqui**. Não há fatura por token; o `total_cost_usd` na resposta é o valor *equivalente*, tirado do seu plano, não uma cobrança. |
-| `ANTHROPIC_API_KEY` | **Da sua conta de API (pago por token)** | Cobrado à parte da assinatura, conforme o [pricing da API](https://www.anthropic.com/pricing). **Não** mexe nos limites da assinatura. Obrigatório quando `bare:true`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` (do `claude setup-token`) | **Da sua assinatura Pro/Max** | Mesma conta do seu Claude Code interativo. Não há fatura por token; o `total_cost_usd` na resposta é o valor *equivalente*, tirado do seu plano. **Mas de qual pool ele desconta mudou em 15/jun/2026 — veja abaixo.** |
+| `ANTHROPIC_API_KEY` | **Da sua conta de API (pago por token)** | Cobrado à parte da assinatura, conforme o [pricing da API](https://www.anthropic.com/pricing). **Não** mexe nos limites da assinatura nem no crédito do Agent SDK. Obrigatório quando `bare:true`. Nada nessa opção mudou em 15/jun. |
 
-Se as duas estiverem setadas, a CLI `claude` usa o token OAuth (assinatura). Para
-cobrar as runs separadamente da cota da assinatura, remova o
-`CLAUDE_CODE_OAUTH_TOKEN` e defina o `ANTHROPIC_API_KEY` no lugar. Dá para
-confirmar qual está ativo pelo campo `apiKeySource` no evento `system`/`init` do
-streaming (`none` = assinatura).
+Se as duas estiverem setadas, a CLI `claude` usa o token OAuth (assinatura). Dá
+para confirmar qual está ativo pelo campo `apiKeySource` no evento `system`/`init`
+do streaming (`none` = assinatura).
+
+> **⚠️ Mudança de billing — 15 de junho de 2026.** O `clauded` roda `claude -p`
+> (headless), que a Anthropic moveu para um **pool de crédito separado do Agent
+> SDK**, distinto dos limites da sua assinatura interativa:
+>
+> - **Antes:** o `claude -p` descontava do mesmo pool de rate limit da assinatura
+>   (janela de 5h + limites semanais) que o Claude Code interativo.
+> - **A partir de 15/jun/2026:** o Agent SDK, o **`claude -p`**, o GitHub Actions e
+>   apps de terceiros na sua assinatura passam a descontar de um **crédito mensal
+>   separado** — **$20** (Pro), **$100** (Max 5x), **$200** (Max 20x) — cobrado a
+>   *standard API rates*. O Claude Code interativo, os apps web/desktop/mobile e o
+>   Cowork continuam na cota normal da assinatura, sem mudança.
+> - Esse crédito é **bem menor** que o que o uso interativo permite (em valor
+>   equivalente de API). Quando acaba, as **runs param** — não há rollover nem
+>   fallback automático, **a menos que você habilite overflow / usage credits**
+>   (pay-as-you-go a preço de API).
+>
+> Ou seja, a partir de 15/jun toda run do `clauded` com token OAuth consome o
+> crédito do Agent SDK, não a sua cota interativa. Para automação intensa, habilite
+> overflow ou use `ANTHROPIC_API_KEY` direto. Veja a
+> [Central de Ajuda](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan).
 
 ---
 
