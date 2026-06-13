@@ -1,110 +1,109 @@
 # clauded
 
-> **Uma API HTTP sobre o Claude Code headless, usando a sua assinatura Pro/Max.**
+**English** · [Português](README.pt-BR.md)
+
+> **An HTTP API over headless Claude Code, powered by your Pro/Max subscription.**
 
 [![CI & Release](https://github.com/addodelgrossi/clauded/actions/workflows/release.yml/badge.svg)](https://github.com/addodelgrossi/clauded/actions/workflows/release.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/addodelgrossi/clauded.svg)](https://pkg.go.dev/github.com/addodelgrossi/clauded)
 [![Go Report Card](https://goreportcard.com/badge/github.com/addodelgrossi/clauded)](https://goreportcard.com/report/github.com/addodelgrossi/clauded)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-`clauded` é um daemon HTTP em Go (convenção Unix: *Claude + d*, como `sshd`/`dockerd`)
-que embrulha o **Claude Code em modo headless** (`claude -p`) e o expõe como uma
-**API REST/streaming**. Ele roda na sua máquina, executa prompts agênticos em
-projetos locais e devolve o resultado por JSON ou Server-Sent Events.
+`clauded` is a Go HTTP daemon (Unix naming convention: *Claude + d*, like
+`sshd`/`dockerd`) that wraps **Claude Code in headless mode** (`claude -p`) and
+exposes it as a **REST/streaming API**. It runs on your machine, executes agentic
+prompts against local projects, and returns the result as JSON or Server-Sent
+Events.
 
-O ponto central: o `clauded` autentica o Claude Code com o **token OAuth da sua
-assinatura** (`CLAUDE_CODE_OAUTH_TOKEN`), e **não** com a `ANTHROPIC_API_KEY`
-paga por token — você usa o limite que já paga. Para acesso remoto, ele fica
-atrás de um **Cloudflare Tunnel** (conexão saída-apenas, sem abrir portas no
-firewall), protegido por um Bearer token.
-
----
-
-## ⚠️ Aviso de segurança
-
-**Este serviço executa comandos e edita arquivos na sua máquina.** Trate-o como
-um acesso privilegiado:
-
-- **Proteja os tokens.** `CLAUDED_API_TOKEN` e `CLAUDE_CODE_OAUTH_TOKEN` dão
-  acesso ao serviço e à sua assinatura. Nunca os commite, nunca os exponha em
-  logs. O `clauded` jamais loga esses valores.
-- **Use a allowlist de diretórios.** Configure `CLAUDED_ALLOWED_ROOTS` para
-  restringir quais pastas um cliente pode ler/editar. Caminhos fora delas (após
-  resolver symlinks e `..`) são rejeitados com `403`.
-- **Modos de permissão perigosos ficam bloqueados por padrão.**
-  `bypassPermissions` e `dontAsk` só funcionam com `CLAUDED_ALLOW_DANGEROUS=true`.
-- **Bind em `127.0.0.1`.** O acesso externo deve vir só pelo túnel Cloudflare.
-  Nunca exponha a porta diretamente na internet.
+The key point: `clauded` authenticates Claude Code with **your subscription's
+OAuth token** (`CLAUDE_CODE_OAUTH_TOKEN`), **not** the per-token paid
+`ANTHROPIC_API_KEY` — so you use the quota you already pay for. For remote access
+it sits behind a **Cloudflare Tunnel** (outbound-only connection, no firewall
+ports opened), protected by a Bearer token.
 
 ---
 
-## Como funciona
+## ⚠️ Security warning
 
-```
-┌─────────────┐        HTTPS         ┌───────────────────────────────────────┐
-│  Cliente    │ ───────────────────▶ │  Cloudflare Edge                       │
-│  externo    │  Bearer <API_TOKEN>  │  clauded.seudominio.com                │
-└─────────────┘                      └──────────────────┬────────────────────┘
-                                                        │ túnel saída-apenas
-                                          ┌─────────────▼──────────────┐
-                                          │  cloudflared (na máquina)  │
-                                          └─────────────┬──────────────┘
-                                                        │ http://127.0.0.1:8787
-                                          ┌─────────────▼──────────────┐
-                                          │      clauded (Go)          │
-                                          │  auth · rate limit ·       │
-                                          │  allowlist · monta argv    │
-                                          └─────────────┬──────────────┘
-                                                        │ exec.CommandContext
-                                          ┌─────────────▼──────────────┐
-                                          │  claude -p ... (subprocess)│
-                                          │  env: CLAUDE_CODE_OAUTH_…  │
-                                          │  cwd: workdir do projeto   │
-                                          └────────────────────────────┘
+**This service runs commands and edits files on your machine.** Treat it as
+privileged access:
+
+- **Protect the tokens.** `CLAUDED_API_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN` grant
+  access to the service and to your subscription. Never commit them, never leak
+  them in logs. `clauded` never logs these values.
+- **Use the directory allowlist.** Set `CLAUDED_ALLOWED_ROOTS` to restrict which
+  folders a client can read/edit. Paths outside them (after resolving symlinks
+  and `..`) are rejected with `403`.
+- **Dangerous permission modes are blocked by default.** `bypassPermissions` and
+  `dontAsk` only work with `CLAUDED_ALLOW_DANGEROUS=true`.
+- **Bind to `127.0.0.1`.** External access should only come through the
+  Cloudflare Tunnel. Never expose the port directly to the internet.
+
+---
+
+## How it works
+
+```mermaid
+flowchart LR
+    Client["Remote client<br/>Bearer token"] -->|HTTPS| CF["Cloudflare Edge<br/>clauded.yourdomain.com"]
+    CF -->|outbound-only tunnel| CFD["cloudflared<br/>(your machine)"]
+    CFD -->|http://127.0.0.1:8787| Daemon
+
+    subgraph Daemon["clauded (Go daemon)"]
+        direction TB
+        S1["Bearer auth<br/>(constant-time)"] --> S2["Rate limit +<br/>concurrency semaphore"]
+        S2 --> S3["Validate · workdir allowlist<br/>· block dangerous modes"]
+        S3 --> S4["Build argv<br/>(no shell, no injection)"]
+    end
+
+    Daemon -->|"exec.CommandContext<br/>env: CLAUDE_CODE_OAUTH_TOKEN<br/>cwd: workdir"| CLI["claude -p ...<br/>(subprocess)"]
+    CLI --> FS[("Project files +<br/>~/.claude sessions")]
+    CLI -.->|"JSON / stream-json"| Daemon
+    Daemon -.->|"JSON or SSE"| Client
 ```
 
-Uma requisição `POST /v1/runs` é autenticada, validada, ganha um slot no
-semáforo de concorrência, é traduzida para o `argv` do `claude` (sem shell, sem
-injeção), executada com o `cwd` e o env corretos, e a saída é devolvida como
-JSON único ou stream SSE.
+A `POST /v1/runs` request is authenticated, validated, acquires a slot in the
+concurrency semaphore, is translated into the `claude` `argv` (no shell, no
+injection), executed with the correct `cwd` and env, and the output is returned
+as a single JSON object or an SSE stream.
 
 ---
 
-## Instalação
+## Installation
 
-### Instalador one-liner (recomendado)
+### One-liner installer (recommended)
 
-Baixa e instala o binário da **última release** automaticamente
-(macOS/Linux, detecta OS e arquitetura):
+Downloads and installs the binary from the **latest release** automatically
+(macOS/Linux, detects OS and architecture):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh | sh
 ```
 
-Por padrão instala em `~/.local/bin` (ou `/usr/local/bin`). Para escolher a
-versão ou o diretório:
+By default it installs to `~/.local/bin` (or `/usr/local/bin`). To pick the
+version or directory:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh \
   | CLAUDED_VERSION=v0.1.0 CLAUDED_INSTALL_DIR=/usr/local/bin sh
 ```
 
-> As variáveis vêm **depois** do pipe (antes do `sh`), pois precisam chegar ao
-> script — não ao `curl`.
+> The variables go **after** the pipe (before `sh`), because they need to reach
+> the script — not `curl`.
 
-### Download manual
+### Manual download
 
-Baixe o arquivo da [última release](https://github.com/addodelgrossi/clauded/releases/latest)
-para a sua plataforma — `darwin_arm64`, `darwin_amd64`, `linux_amd64`,
-`linux_arm64` (`.tar.gz`) ou `windows_amd64` (`.zip`) — extraia e mova `clauded`
-para o `PATH`:
+Grab the archive from the [latest release](https://github.com/addodelgrossi/clauded/releases/latest)
+for your platform — `darwin_arm64`, `darwin_amd64`, `linux_amd64`, `linux_arm64`
+(`.tar.gz`) or `windows_amd64` (`.zip`) — extract it and move `clauded` to your
+`PATH`:
 
 ```bash
 tar -xzf clauded_*_darwin_arm64.tar.gz
 install clauded ~/.local/bin/
 ```
 
-Verifique os checksums com o `checksums.txt` anexado à release.
+Verify integrity with the `checksums.txt` attached to the release.
 
 ### Via `go install`
 
@@ -112,28 +111,28 @@ Verifique os checksums com o `checksums.txt` anexado à release.
 go install github.com/addodelgrossi/clauded/cmd/clauded@latest
 ```
 
-### Compilando do código
+### Building from source
 
 ```bash
 git clone https://github.com/addodelgrossi/clauded
 cd clauded
-make build      # gera dist/clauded
+make build      # produces dist/clauded
 ```
 
 ---
 
-## Pré-requisitos
+## Prerequisites
 
-1. **Claude Code instalado** e no `PATH` (`claude --version`).
-2. **Token OAuth da assinatura.** Gere com:
+1. **Claude Code installed** and on your `PATH` (`claude --version`).
+2. **The subscription OAuth token.** Generate it with:
 
    ```bash
    claude setup-token
-   export CLAUDE_CODE_OAUTH_TOKEN="<token gerado>"
+   export CLAUDE_CODE_OAUTH_TOKEN="<generated token>"
    ```
 
-   Isso usa o limite da sua assinatura Pro/Max em vez de cobrar por token.
-3. **Um Bearer token para a API** (qualquer string secreta forte):
+   This uses your Pro/Max subscription quota instead of billing per token.
+3. **A Bearer token for the API** (any strong secret string):
 
    ```bash
    export CLAUDED_API_TOKEN="$(openssl rand -hex 32)"
@@ -141,276 +140,276 @@ make build      # gera dist/clauded
 
 ---
 
-## Configuração
+## Configuration
 
-Precedência (maior → menor): **flag de linha de comando → variável de ambiente
-`CLAUDED_*` → arquivo YAML (`--config`) → default**.
+Precedence (highest → lowest): **command-line flag → environment variable
+`CLAUDED_*` → YAML file (`--config`) → default**.
 
-| Env | Flag | Default | Descrição |
+| Env | Flag | Default | Description |
 |---|---|---|---|
-| `CLAUDED_ADDR` | `--addr` | `127.0.0.1:8787` | Bind do servidor |
-| `CLAUDED_API_TOKEN` | — | (obrigatório) | Bearer token da API |
-| `CLAUDE_CODE_OAUTH_TOKEN` | — | (obrigatório¹) | Token da assinatura (`claude setup-token`) |
-| `ANTHROPIC_API_KEY` | — | — | Alternativa paga; necessária para `bare:true` |
-| `CLAUDED_ALLOWED_ROOTS` | `--allowed-roots` | `$HOME/projects` | Raízes permitidas para `workdir` |
-| `CLAUDED_MAX_CONCURRENCY` | `--max-concurrency` | `2` | Runs simultâneas |
-| `CLAUDED_DEFAULT_MODEL` | `--default-model` | `sonnet` | Modelo padrão |
-| `CLAUDED_CLAUDE_BIN` | `--claude-bin` | `claude` | Caminho do binário claude |
-| `CLAUDED_RUN_TIMEOUT` | `--run-timeout` | `10m` | Timeout por run |
-| `CLAUDED_ALLOW_DANGEROUS` | — | `false` | Habilita `bypassPermissions`/`dontAsk` |
-| `CLAUDED_LOG_FORMAT` | `--log-format` | `json` | `json` ou `text` |
+| `CLAUDED_ADDR` | `--addr` | `127.0.0.1:8787` | Server bind address |
+| `CLAUDED_API_TOKEN` | — | (required) | API Bearer token |
+| `CLAUDE_CODE_OAUTH_TOKEN` | — | (required¹) | Subscription token (`claude setup-token`) |
+| `ANTHROPIC_API_KEY` | — | — | Paid alternative; required for `bare:true` |
+| `CLAUDED_ALLOWED_ROOTS` | `--allowed-roots` | `$HOME/projects` | Allowed roots for `workdir` |
+| `CLAUDED_MAX_CONCURRENCY` | `--max-concurrency` | `2` | Concurrent runs |
+| `CLAUDED_DEFAULT_MODEL` | `--default-model` | `sonnet` | Default model |
+| `CLAUDED_CLAUDE_BIN` | `--claude-bin` | `claude` | Path to the claude binary |
+| `CLAUDED_RUN_TIMEOUT` | `--run-timeout` | `10m` | Per-run timeout |
+| `CLAUDED_ALLOW_DANGEROUS` | — | `false` | Enables `bypassPermissions`/`dontAsk` |
+| `CLAUDED_LOG_FORMAT` | `--log-format` | `json` | `json` or `text` |
 | `CLAUDED_LOG_LEVEL` | `--log-level` | `info` | `debug`/`info`/`warn`/`error` |
-| `CLAUDED_SESSION_STORE` | `--session-store` | `$HOME/.clauded/sessions.json` | Store de sessões |
-| `CLAUDED_RATE_LIMIT_PER_MINUTE` | `--rate-limit-per-minute` | `60` | Requisições/cliente/min (0=ilimitado) |
-| `CLAUDED_METRICS_ENABLED` | `--metrics` | `false` | Expõe `/metrics` |
-| `CLAUDED_CONFIG` | `--config` | — | Caminho do arquivo YAML |
+| `CLAUDED_SESSION_STORE` | `--session-store` | `$HOME/.clauded/sessions.json` | Session store |
+| `CLAUDED_RATE_LIMIT_PER_MINUTE` | `--rate-limit-per-minute` | `60` | Requests/client/min (0=unlimited) |
+| `CLAUDED_METRICS_ENABLED` | `--metrics` | `false` | Exposes `/metrics` |
+| `CLAUDED_CONFIG` | `--config` | — | Path to the YAML file |
 
-¹ É obrigatório ter `CLAUDE_CODE_OAUTH_TOKEN` **ou** `ANTHROPIC_API_KEY`.
+¹ You must provide `CLAUDE_CODE_OAUTH_TOKEN` **or** `ANTHROPIC_API_KEY`.
 
-Veja [`clauded.example.yaml`](clauded.example.yaml) para um arquivo comentado.
+See [`clauded.example.yaml`](clauded.example.yaml) for a commented file.
 
-Subindo o serviço:
+Starting the service:
 
 ```bash
 export CLAUDED_API_TOKEN="..."
 export CLAUDE_CODE_OAUTH_TOKEN="..."
 clauded --allowed-roots "$HOME/projects" --log-format text
-# → INFO clauded iniciado addr=127.0.0.1:8787 ...
+# → INFO clauded started addr=127.0.0.1:8787 ...
 ```
 
 ---
 
-## Uso
+## Usage
 
-Todos os endpoints (exceto `/healthz`) exigem `Authorization: Bearer $CLAUDED_API_TOKEN`.
+Every endpoint (except `/healthz`) requires `Authorization: Bearer $CLAUDED_API_TOKEN`.
 
 ```bash
-# Run simples (JSON)
-curl -sS https://clauded.seudominio.com/v1/runs \
+# Simple run (JSON)
+curl -sS https://clauded.yourdomain.com/v1/runs \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Refatore o pacote auth para usar JWT","workdir":"/Users/me/projects/api","model":"sonnet"}'
+  -d '{"prompt":"Refactor the auth package to use JWT","workdir":"/Users/me/projects/api","model":"sonnet"}'
 
 # Streaming (SSE)
-curl -N https://clauded.seudominio.com/v1/runs \
+curl -N https://clauded.yourdomain.com/v1/runs \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Explique a arquitetura","workdir":"/Users/me/projects/api","stream":true}'
+  -d '{"prompt":"Explain the architecture","workdir":"/Users/me/projects/api","stream":true}'
 
-# Retomar uma sessão (mesmo workdir!)
-curl -sS https://clauded.seudominio.com/v1/runs \
+# Resume a session (same workdir!)
+curl -sS https://clauded.yourdomain.com/v1/runs \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN" \
-  -d '{"prompt":"Agora implemente o que sugeriu","resume":"<session-id>","workdir":"/Users/me/projects/api"}'
+  -d '{"prompt":"Now implement what you suggested","resume":"<session-id>","workdir":"/Users/me/projects/api"}'
 
-# Invocar um SKILL explicitamente (slash command no prompt)
-curl -sS https://clauded.seudominio.com/v1/runs \
+# Invoke a SKILL explicitly (slash command in the prompt)
+curl -sS https://clauded.yourdomain.com/v1/runs \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN" \
   -d '{"prompt":"/security-review","workdir":"/Users/me/projects/api","permission_mode":"acceptEdits"}'
 
-# Invocar um SKILL por linguagem natural (o modelo escolhe o que casa)
-curl -sS https://clauded.seudominio.com/v1/runs \
+# Invoke a SKILL via natural language (the model picks the matching skill)
+curl -sS https://clauded.yourdomain.com/v1/runs \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN" \
-  -d '{"prompt":"gere um relatório PDF a partir do README deste projeto","workdir":"/Users/me/projects/api","tools":"Read,Bash,Write"}'
+  -d '{"prompt":"generate a PDF report from this project README","workdir":"/Users/me/projects/api","tools":"Read,Bash,Write"}'
 
-# Listar sessões
-curl -sS https://clauded.seudominio.com/v1/sessions \
+# List sessions
+curl -sS https://clauded.yourdomain.com/v1/sessions \
   -H "Authorization: Bearer $CLAUDED_API_TOKEN"
 ```
 
-### Sessões: resume, continue, fork
+### Sessions: resume, continue, fork
 
-O Claude Code grava o histórico em
-`~/.claude/projects/<workdir-codificado>/<session-id>.jsonl`. **Retomar só
-funciona com o mesmo `workdir`** — o `clauded` amarra cada `session_id` ao seu
-`workdir` no store e o reusa automaticamente (você pode até omitir `workdir` num
-`resume` de sessão conhecida).
+Claude Code stores history in
+`~/.claude/projects/<encoded-workdir>/<session-id>.jsonl`. **Resuming only works
+with the same `workdir`** — `clauded` ties each `session_id` to its `workdir` in
+the store and reuses it automatically (you can even omit `workdir` on a `resume`
+of a known session).
 
-- `resume`: retoma uma sessão específica (recomendado para a API).
-- `continue`: retoma a sessão mais recente do `workdir`.
-- `fork`: cria uma nova sessão a partir do histórico, sem alterar a original.
+- `resume`: resumes a specific session (recommended for the API).
+- `continue`: resumes the most recent session for that `workdir`.
+- `fork`: creates a new session from the history, without altering the original.
 
-Se uma run parar por limite (`subtype: error_max_turns` ou
-`error_max_budget_usd`), o `session_id` é devolvido para você retomar com um
-limite maior.
+If a run stops due to a limit (`subtype: error_max_turns` or
+`error_max_budget_usd`), the `session_id` is returned so you can resume with a
+higher limit.
 
-### Skills e slash commands
+### Skills and slash commands
 
-Skills funcionam de duas formas: explicitamente (`"prompt": "/security-review"`)
-ou por linguagem natural (o modelo escolhe o skill cujo `description` casa). O
-skill precisa estar **instalado na máquina** onde o `claude` roda. Comandos
-interativos (`/login`, `/config`) não funcionam em modo headless. Skills que
-usam ferramentas dependem de `permission_mode`/`tools`.
+Skills work in two ways: explicitly (`"prompt": "/security-review"`) or via
+natural language (the model picks the skill whose `description` matches). The
+skill must be **installed on the machine** where `claude` runs. Interactive
+commands (`/login`, `/config`) do not work in headless mode. Skills that use
+tools depend on `permission_mode`/`tools`.
 
 ---
 
-## Referência da API
+## API reference
 
-Especificação completa em [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1).
+Full specification in [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1).
 
 **Endpoints:** `POST /v1/runs`, `GET /v1/sessions`, `GET /v1/sessions/{id}`,
-`GET /healthz` (público), `GET /readyz`, `GET /version`.
+`GET /healthz` (public), `GET /readyz`, `GET /version`.
 
-Principais campos do corpo de `POST /v1/runs` (mapeiam para flags do `claude -p`):
+Main fields of the `POST /v1/runs` body (mapped to `claude -p` flags):
 
-| Campo | Flag | Notas |
+| Field | Flag | Notes |
 |---|---|---|
-| `prompt` *(obrigatório)* | `-p` | Pode iniciar com `/<skill>` |
-| `workdir` | `--add-dir` + `cwd` | Deve estar na allowlist |
-| `model` | `--model` | `sonnet`/`opus`/`haiku`/`fable` ou ID |
-| `session_id` | `--session-id` | UUID v4 (gerado se ausente) |
-| `resume` | `--resume` | UUID de sessão existente |
-| `continue` | `--continue` | Sessão mais recente do workdir |
-| `fork` | `--fork-session` | Novo ID ao retomar |
+| `prompt` *(required)* | `-p` | May start with `/<skill>` |
+| `workdir` | `--add-dir` + `cwd` | Must be inside the allowlist |
+| `model` | `--model` | `sonnet`/`opus`/`haiku`/`fable` or ID |
+| `session_id` | `--session-id` | UUID v4 (generated if absent) |
+| `resume` | `--resume` | UUID of an existing session |
+| `continue` | `--continue` | Most recent session for the workdir |
+| `fork` | `--fork-session` | New ID when resuming |
 | `output_format` | `--output-format` | `text`/`json`/`stream-json` |
-| `stream` | (SSE) | Força `stream-json` |
+| `stream` | (SSE) | Forces `stream-json` |
 | `permission_mode` | `--permission-mode` | `default`/`acceptEdits`/`plan`/`auto`/`dontAsk`²/`bypassPermissions`² |
-| `tools` | `--tools` | Ex.: `"Bash,Edit,Read"` |
-| `max_turns` | `--max-turns` | Ver nota de compatibilidade abaixo |
-| `max_budget_usd` | `--max-budget-usd` | Teto de gasto |
-| `append_system_prompt` / `system_prompt` | idem | |
-| `mcp_config` / `strict_mcp_config` | idem | |
-| `agents` / `json_schema` | idem | |
+| `tools` | `--tools` | E.g. `"Bash,Edit,Read"` |
+| `max_turns` | `--max-turns` | See compatibility note below |
+| `max_budget_usd` | `--max-budget-usd` | Spending ceiling |
+| `append_system_prompt` / `system_prompt` | same | |
+| `mcp_config` / `strict_mcp_config` | same | |
+| `agents` / `json_schema` | same | |
 | `effort` | `--effort` | `low`/`medium`/`high`/`xhigh` |
 | `fallback_model` | `--fallback-model` | |
-| `setting_sources` | `--setting-sources` | Ex.: `"user,project,local"` |
-| `plugin_dirs` / `plugin_urls` | `--plugin-dir`/`--plugin-url` | `plugin_dirs` validado contra a allowlist |
-| `bare` | `--bare` | ⚠️ Ver nota abaixo |
+| `setting_sources` | `--setting-sources` | E.g. `"user,project,local"` |
+| `plugin_dirs` / `plugin_urls` | `--plugin-dir`/`--plugin-url` | `plugin_dirs` validated against the allowlist |
+| `bare` | `--bare` | ⚠️ See note below |
 
-² Exigem `CLAUDED_ALLOW_DANGEROUS=true`, senão `403`.
+² Require `CLAUDED_ALLOW_DANGEROUS=true`, otherwise `403`.
 
-> **Nota sobre `bare`.** A flag `--bare` desativa a leitura de credenciais OAuth
-> e do keychain — nesse modo o Claude Code só autentica com `ANTHROPIC_API_KEY`.
-> Portanto `bare:true` é **incompatível com a assinatura** e o `clauded` o
-> rejeita com `400` a menos que `ANTHROPIC_API_KEY` esteja configurada.
+> **Note on `bare`.** The `--bare` flag disables reading OAuth credentials and
+> the keychain — in that mode Claude Code only authenticates with
+> `ANTHROPIC_API_KEY`. So `bare:true` is **incompatible with the subscription**
+> and `clauded` rejects it with `400` unless `ANTHROPIC_API_KEY` is configured.
 
-> **Nota sobre `max_turns`.** O flag `--max-turns` pode não existir em todas as
-> versões do CLI `claude`. O `clauded` o envia quando você o especifica; se a
-> sua versão não o reconhecer, a run falhará com erro do CLI. Verifique com o
-> teste de integração (`make test-integration`).
+> **Note on `max_turns`.** The `--max-turns` flag may not exist in every version
+> of the `claude` CLI. `clauded` sends it when you specify it; if your version
+> doesn't recognize it, the run fails with a CLI error. Verify with the
+> integration test (`make test-integration`).
 
 ---
 
-## Acesso externo via Cloudflare Tunnel
+## Remote access via Cloudflare Tunnel
 
-O Cloudflare Tunnel faz conexão **saída-apenas** para a borda da Cloudflare —
-não exige abrir portas no firewall/roteador, e a Cloudflare provê TLS no seu
-subdomínio. Requer um domínio gerenciado pela Cloudflare.
+Cloudflare Tunnel makes an **outbound-only** connection to Cloudflare's edge — it
+doesn't require opening ports on your firewall/router, and Cloudflare provides
+TLS on your subdomain. Requires a domain managed by Cloudflare.
 
 ```bash
-# 1. Instale o cloudflared
+# 1. Install cloudflared
 ./scripts/install-cloudflared.sh
 
-# 2. Autentique na conta
+# 2. Authenticate against your account
 cloudflared tunnel login
 
-# 3. Crie o túnel (gera credenciais + Tunnel ID)
+# 3. Create the tunnel (generates credentials + Tunnel ID)
 cloudflared tunnel create clauded
 
-# 4. Roteie um hostname
-cloudflared tunnel route dns clauded clauded.seudominio.com
+# 4. Route a hostname
+cloudflared tunnel route dns clauded clauded.yourdomain.com
 
-# 5. Configure (veja deploy/cloudflared-config.yml)
+# 5. Configure (see deploy/cloudflared-config.yml)
 cp deploy/cloudflared-config.yml ~/.cloudflared/config.yml
-# edite <TUNNEL_ID> e o caminho das credenciais
+# edit <TUNNEL_ID> and the credentials path
 
-# 6. Rode
+# 6. Run
 cloudflared tunnel run clauded
 ```
 
-**Defesa em profundidade:** mesmo com o túnel, mantenha o Bearer token e,
-idealmente, ative o **Cloudflare Access** (políticas de identidade na borda) na
-frente do hostname, como segunda camada de autenticação.
+**Defense in depth:** even with the tunnel, keep the Bearer token and, ideally,
+enable **Cloudflare Access** (identity policies at the edge) in front of the
+hostname as a second authentication layer.
 
-### Alternativa rápida (protótipo): ngrok
+### Quick alternative (prototype): ngrok
 
 ```bash
 ngrok http 8787
 ```
 
-Mais simples e efêmero, porém **menos seguro** (URL pública aleatória). O Bearer
-token continua obrigatório.
+Simpler and ephemeral, but **less secure** (random public URL). The Bearer token
+remains mandatory.
 
 ---
 
-## Rodar como serviço
+## Running as a service
 
 ### Linux (systemd)
 
 ```bash
 cp deploy/clauded.service ~/.config/systemd/user/
-# crie ~/.config/clauded.env (chmod 600) com os segredos e ~/.config/clauded.yaml
+# create ~/.config/clauded.env (chmod 600) with the secrets and ~/.config/clauded.yaml
 systemctl --user daemon-reload
 systemctl --user enable --now clauded
-loginctl enable-linger "$USER"   # mantém rodando após logout
+loginctl enable-linger "$USER"   # keeps it running after logout
 ```
 
 ### macOS (launchd)
 
 ```bash
 cp deploy/com.user.clauded.plist ~/Library/LaunchAgents/
-# edite os caminhos absolutos e os tokens no arquivo
+# edit the absolute paths and tokens in the file
 launchctl load -w ~/Library/LaunchAgents/com.user.clauded.plist
 ```
 
-Veja os comentários em cada arquivo de `deploy/` para detalhes e hardening.
+See the comments in each file under `deploy/` for details and hardening.
 
 ---
 
-## Desenvolvimento
+## Development
 
 ```bash
-make build              # compila para dist/clauded
-make test               # testes unitários (-race -cover)
-make test-integration   # invoca o claude real (requer token)
+make build              # builds dist/clauded
+make test               # unit tests (-race -cover)
+make test-integration   # invokes the real claude (requires token)
 make lint               # golangci-lint
-make cross              # cross-compila os 5 alvos manualmente
-make release            # goreleaser (em tag)
+make cross              # cross-compiles the 5 targets manually
+make release            # goreleaser (on a tag)
 ```
 
-Layout do repositório:
+Repository layout:
 
 ```
 cmd/clauded/        # main: flags, wire-up, graceful shutdown
-internal/config/    # config em 3 camadas
-internal/runner/    # tradução RunRequest -> argv, exec, parse
+internal/config/    # 3-layer config
+internal/runner/    # RunRequest -> argv translation, exec, parse
 internal/server/    # mux, handlers, middlewares, SSE
-internal/session/   # store JSON session_id -> workdir
-internal/version/   # versão injetada via -ldflags
-api/openapi.yaml    # spec da API
+internal/session/   # JSON store session_id -> workdir
+internal/version/   # version injected via -ldflags
+api/openapi.yaml    # API spec
 deploy/             # systemd, launchd, cloudflared
 ```
 
-A tradução `RunRequest → argv` (`internal/runner/options.go`) é uma função pura,
-coberta por testes de tabela; o executor é abstraído por uma interface com fake
-para testar sem o binário real.
+The `RunRequest → argv` translation (`internal/runner/options.go`) is a pure
+function covered by table tests; the executor is abstracted behind an interface
+with a fake so it can be tested without the real binary.
 
 ---
 
 ## FAQ / Troubleshooting
 
-**`resume` voltou uma sessão vazia / sem contexto.** O `workdir` precisa ser o
-**mesmo** de quando a sessão foi criada — o histórico do Claude Code é indexado
-pelo `cwd`. O `clauded` cuida disso pelo store, mas se você passou um `workdir`
-diferente do original, será uma sessão nova.
+**`resume` came back with an empty session / no context.** The `workdir` must be
+the **same** as when the session was created — Claude Code's history is indexed
+by `cwd`. `clauded` handles this through the store, but if you passed a different
+`workdir` than the original, it'll be a new session.
 
-**`401 Unauthorized`.** Falta o header `Authorization: Bearer <token>` ou o
-token não bate com `CLAUDED_API_TOKEN`.
+**`401 Unauthorized`.** The `Authorization: Bearer <token>` header is missing or
+the token doesn't match `CLAUDED_API_TOKEN`.
 
-**`403 workdir_forbidden`.** O `workdir` está fora de `CLAUDED_ALLOWED_ROOTS`.
-Ajuste as raízes permitidas.
+**`403 workdir_forbidden`.** The `workdir` is outside `CLAUDED_ALLOWED_ROOTS`.
+Adjust the allowed roots.
 
-**`readyz` retorna 503 / "claude não encontrado".** O binário `claude` não está
-no `PATH` do processo `clauded`. Defina `CLAUDED_CLAUDE_BIN` com o caminho
-absoluto ou ajuste o `PATH` do serviço.
+**`readyz` returns 503 / "claude not found".** The `claude` binary isn't on the
+`clauded` process's `PATH`. Set `CLAUDED_CLAUDE_BIN` to the absolute path or
+adjust the service's `PATH`.
 
-**`bare_requires_api_key`.** Você passou `bare:true` sem `ANTHROPIC_API_KEY` —
-veja a nota sobre `bare` acima.
+**`bare_requires_api_key`.** You passed `bare:true` without `ANTHROPIC_API_KEY` —
+see the note on `bare` above.
 
-**A run falha com erro mencionando `--max-turns`.** Sua versão do `claude` pode
-não suportar esse flag; remova `max_turns` da requisição.
+**A run fails with an error mentioning `--max-turns`.** Your `claude` version may
+not support that flag; remove `max_turns` from the request.
 
 ---
 
-## Licença
+## License
 
 [MIT](LICENSE) © 2026 Addo Del Grossi.
