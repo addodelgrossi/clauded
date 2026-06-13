@@ -71,6 +71,10 @@ func (s *Server) Handler() http.Handler {
 
 	// Endpoints públicos (sem auth).
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /ui", s.handleUI)
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui", http.StatusFound)
+	})
 
 	// Endpoints autenticados.
 	mux.Handle("GET /readyz", s.auth(http.HandlerFunc(s.handleReadyz)))
