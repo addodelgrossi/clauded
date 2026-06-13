@@ -138,6 +138,21 @@ make build      # produces dist/clauded
    export CLAUDED_API_TOKEN="$(openssl rand -hex 32)"
    ```
 
+### Subscription vs. API key — where does the usage come from?
+
+`clauded` authenticates the underlying `claude` process in one of two ways, and
+**this decides whose quota/bill the runs hit:**
+
+| Variable | Source of usage | Notes |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | **Your Pro/Max subscription** | Same account as your interactive Claude Code. Runs share the **same rate-limit pool** (the 5-hour rolling window and weekly limits). It is a *separate token*, but tied to the *same subscription* — so this usage counts against the **same quota you use here**. No per-token invoice; `total_cost_usd` in the response is the *equivalent* value, drawn from your plan, not a charge. |
+| `ANTHROPIC_API_KEY` | **Your API account (pay-per-token)** | Billed separately from the subscription, per the [API pricing](https://www.anthropic.com/pricing). Does **not** touch your subscription limits. Required when `bare:true`. |
+
+If both are set, the `claude` CLI uses the OAuth (subscription) token. To bill
+runs separately from your subscription quota, unset `CLAUDE_CODE_OAUTH_TOKEN` and
+set `ANTHROPIC_API_KEY` instead. You can confirm which one is active from the
+`apiKeySource` field in the streamed `system`/`init` event (`none` = subscription).
+
 ---
 
 ## Configuration
