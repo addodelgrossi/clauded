@@ -137,6 +137,22 @@ make build      # gera dist/clauded
    export CLAUDED_API_TOKEN="$(openssl rand -hex 32)"
    ```
 
+### Assinatura vs. API key — de onde sai o consumo?
+
+O `clauded` autentica o processo `claude` por baixo de duas formas, e
+**é isso que decide de quem é a cota/conta que as runs gastam:**
+
+| Variável | De onde sai o uso | Observações |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` (do `claude setup-token`) | **Da sua assinatura Pro/Max** | Mesma conta do seu Claude Code interativo. As runs compartilham o **mesmo pool de rate limit** (a janela móvel de 5h e os limites semanais). É um *token separado*, mas ligado à *mesma assinatura* — então esse uso conta na **mesma cota que você gasta aqui**. Não há fatura por token; o `total_cost_usd` na resposta é o valor *equivalente*, tirado do seu plano, não uma cobrança. |
+| `ANTHROPIC_API_KEY` | **Da sua conta de API (pago por token)** | Cobrado à parte da assinatura, conforme o [pricing da API](https://www.anthropic.com/pricing). **Não** mexe nos limites da assinatura. Obrigatório quando `bare:true`. |
+
+Se as duas estiverem setadas, a CLI `claude` usa o token OAuth (assinatura). Para
+cobrar as runs separadamente da cota da assinatura, remova o
+`CLAUDE_CODE_OAUTH_TOKEN` e defina o `ANTHROPIC_API_KEY` no lugar. Dá para
+confirmar qual está ativo pelo campo `apiKeySource` no evento `system`/`init` do
+streaming (`none` = assinatura).
+
 ---
 
 ## Configuração
