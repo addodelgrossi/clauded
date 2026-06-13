@@ -242,6 +242,31 @@ tools depend on `permission_mode`/`tools`.
 
 ---
 
+## Web UI (demo)
+
+A tiny, dependency-free chat page is **embedded in the binary** and served at
+[`/ui`](http://127.0.0.1:8787/ui) (no auth on the page itself). It's meant to
+**show off and poke at** `clauded` interactively — streaming responses, session
+continuity, cost/turn metrics — without writing any client code.
+
+```bash
+clauded --allowed-roots "$HOME/projects"
+# open http://127.0.0.1:8787/ui , paste your CLAUDED_API_TOKEN, pick a workdir, chat
+```
+
+![clauded web UI](docs/web-ui.png)
+
+- **Streaming toggle** — live token-by-token output (SSE) or single request/response.
+- **Conversation continuity** — keeps the `session_id` and `resume`s it on follow-ups.
+- **Allow edits** — sends `permission_mode: acceptEdits` so the agent can write files.
+- Tool calls show up as chips (e.g. `🔧 Bash`); each answer shows turns · cost · duration.
+
+> ⚠️ **Local demo only.** The page sends your `CLAUDED_API_TOKEN` straight from
+> the browser. Don't expose `/ui` publicly — keep it behind localhost (or your
+> tunnel's access controls). It exists to demonstrate the API, not as a product UI.
+
+---
+
 ## API reference
 
 Full specification in [`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1).
