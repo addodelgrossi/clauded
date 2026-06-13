@@ -85,9 +85,12 @@ Por padrão instala em `~/.local/bin` (ou `/usr/local/bin`). Para escolher a
 versão ou o diretório:
 
 ```bash
-CLAUDED_VERSION=v0.1.0 CLAUDED_INSTALL_DIR=/usr/local/bin \
-  curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh \
+  | CLAUDED_VERSION=v0.1.0 CLAUDED_INSTALL_DIR=/usr/local/bin sh
 ```
+
+> As variáveis vêm **depois** do pipe (antes do `sh`), pois precisam chegar ao
+> script — não ao `curl`.
 
 ### Download manual
 
