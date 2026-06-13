@@ -72,16 +72,36 @@ JSON único ou stream SSE.
 
 ## Instalação
 
-### Binário pré-compilado
+### Instalador one-liner (recomendado)
 
-Baixe o arquivo da [última release](https://github.com/addodelgrossi/clauded/releases)
-para a sua plataforma (`darwin/arm64`, `darwin/amd64`, `linux/amd64`,
-`linux/arm64`, `windows/amd64`), extraia e mova `clauded` para o `PATH`:
+Baixa e instala o binário da **última release** automaticamente
+(macOS/Linux, detecta OS e arquitetura):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh | sh
+```
+
+Por padrão instala em `~/.local/bin` (ou `/usr/local/bin`). Para escolher a
+versão ou o diretório:
+
+```bash
+CLAUDED_VERSION=v0.1.0 CLAUDED_INSTALL_DIR=/usr/local/bin \
+  curl -fsSL https://raw.githubusercontent.com/addodelgrossi/clauded/main/scripts/install.sh | sh
+```
+
+### Download manual
+
+Baixe o arquivo da [última release](https://github.com/addodelgrossi/clauded/releases/latest)
+para a sua plataforma — `darwin_arm64`, `darwin_amd64`, `linux_amd64`,
+`linux_arm64` (`.tar.gz`) ou `windows_amd64` (`.zip`) — extraia e mova `clauded`
+para o `PATH`:
 
 ```bash
 tar -xzf clauded_*_darwin_arm64.tar.gz
 install clauded ~/.local/bin/
 ```
+
+Verifique os checksums com o `checksums.txt` anexado à release.
 
 ### Via `go install`
 
